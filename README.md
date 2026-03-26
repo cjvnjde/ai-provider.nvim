@@ -1,106 +1,189 @@
 # ai-provider.nvim
 
-A reusable AI provider abstraction for Neovim plugins. Handles authentication, model discovery, and HTTP requests for multiple AI providers.
+A reusable AI provider layer for Neovim plugins.
 
-## Supported Providers
+`ai-provider.nvim` is the shared transport/auth/model-discovery plugin used by:
+- [ai-commit.nvim](https://github.com/cjvnjde/ai-commit.nvim)
+- [ai-split-commit.nvim](https://github.com/cjvnjde/ai-split-commit.nvim)
+- your own custom plugins
 
-| Provider | Auth | Description |
+It handles:
+- provider setup
+- authentication
+- model discovery
+- HTTP requests
+- request logging
+
+## Supported providers
+
+| Provider | Auth | Notes |
 | --- | --- | --- |
-| `openrouter` | API key | [OpenRouter](https://openrouter.ai) – access 200+ models with one key |
-| `github-copilot` | OAuth | GitHub Copilot – uses your existing subscription, no separate key needed |
+| `openrouter` | API key | One key, many models |
+| `github-copilot` | OAuth | Uses your Copilot subscription |
 
-## Prerequisites
+## Features
 
-- Neovim >= 0.8.0
-- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
+- shared provider abstraction for multiple plugins
+- OpenRouter and GitHub Copilot support
+- model browser support via consumer plugins
+- authentication helpers
+- custom provider registration
+- request logging with provider + model + host
+
+Example request notification:
+
+```text
+Sending AI request: AICommit -> github-copilot / gpt-5-mini -> api.githubcopilot.com
+```
+
+---
 
 ## Installation
 
-With [lazy.nvim](https://github.com/folke/lazy.nvim):
+### lazy.nvim
 
 ```lua
 {
   "cjvnjde/ai-provider.nvim",
-  dependencies = { "nvim-lua/plenary.nvim" },
-  opts = {}, -- optional, see Configuration below
+  dependencies = {
+    "nvim-lua/plenary.nvim",
+  },
+  opts = {},
 }
 ```
 
-## Configuration
+Setup is optional.
 
-Setup is **optional** – sane defaults work out of the box.
+---
+
+## Quick start
+
+### OpenRouter
+
+```bash
+export OPENROUTER_API_KEY=sk-...
+```
 
 ```lua
 require("ai-provider").setup({
   providers = {
     openrouter = {
-      api_key = nil,                           -- falls back to OPENROUTER_API_KEY env var
-      url = "https://openrouter.ai/api/v1/",   -- base URL
-      chat_url = "chat/completions",            -- endpoint path
-    },
-    ["github-copilot"] = {
-      enterprise_domain = nil,                  -- e.g. "company.ghe.com"
+      api_key = nil, -- uses OPENROUTER_API_KEY if nil
     },
   },
 })
 ```
 
+### GitHub Copilot
+
+```lua
+require("ai-provider").setup({
+  providers = {
+    ["github-copilot"] = {},
+  },
+})
+```
+
+Then authenticate once:
+
+```vim
+:lua require("ai-provider").login("github-copilot")
+```
+
+---
+
+## Configuration
+
+```lua
+require("ai-provider").setup({
+  providers = {
+    openrouter = {
+      api_key = nil,
+      url = "https://openrouter.ai/api/v1/",
+      chat_url = "chat/completions",
+    },
+    ["github-copilot"] = {
+      enterprise_domain = nil,
+    },
+  },
+})
+```
+
+### Config reference
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `providers.openrouter.api_key` | `string?` | OpenRouter API key |
+| `providers.openrouter.url` | `string?` | Override OpenRouter base URL |
+| `providers.openrouter.chat_url` | `string?` | Override chat endpoint path |
+| `providers["github-copilot"].enterprise_domain` | `string?` | GitHub Enterprise domain |
+
+---
+
 ## API
 
-### Setup
+## Setup
 
 ```lua
 local ai = require("ai-provider")
-ai.setup(opts)  -- optional
+ai.setup(opts)
 ```
 
-### Authentication
+## Authentication
 
 ```lua
--- Login (triggers OAuth flow for Copilot, validates key for OpenRouter)
-ai.login("github-copilot", function(result, err) end)
+local ai = require("ai-provider")
 
--- Logout (clears stored credentials)
+ai.login("github-copilot", function(result, err)
+  if result then
+    print("ok")
+  else
+    print(err)
+  end
+end)
+
 ai.logout("github-copilot")
 
--- Check status
 local status = ai.status("github-copilot")
--- { authenticated = true, provider = "github-copilot", message = "..." }
+-- {
+--   authenticated = true,
+--   provider = "github-copilot",
+--   message = "Authenticated"
+-- }
 ```
 
-### Models
+## Models
 
 ```lua
--- List available models for a provider
+local ai = require("ai-provider")
+
 local models = ai.get_models("github-copilot")
--- { { id = "gpt-4o", name = "GPT-4o", provider = "github-copilot", ... }, ... }
-
--- List registered providers
 local providers = ai.get_providers()
--- { "github-copilot", "openrouter" }
 ```
 
-### Requests
+## Requests
 
 ```lua
--- Send a chat-completion request (handles auth automatically)
+local ai = require("ai-provider")
+
 ai.request({
   provider = "github-copilot",
-  model = "gpt-4o",
+  model = "gpt-5-mini",
+  label = "Example",
   body = {
-    model = "gpt-4o",
+    model = "gpt-5-mini",
     messages = {
-      { role = "system", content = "You are a helpful assistant." },
-      { role = "user", content = "Hello!" },
+      { role = "system", content = "You are helpful." },
+      { role = "user", content = "Say hello" },
     },
-    max_tokens = 1024,
+    max_tokens = 128,
   },
 }, function(response, err)
   if err then
-    print("Error: " .. err)
+    print(err)
     return
   end
-  -- response is the raw plenary.curl response: { status, body, headers }
+
   if response.status == 200 then
     local data = vim.json.decode(response.body)
     print(data.choices[1].message.content)
@@ -108,35 +191,118 @@ ai.request({
 end)
 ```
 
-### Custom Providers
+### Request logging
 
-You can register your own provider:
+`label` is optional but useful for logs:
 
 ```lua
-ai.register_provider("my-provider", {
+label = "AICommit"
+label = "AISplitCommit[grouping]"
+label = "MyPlugin"
+```
+
+This produces notifications like:
+
+```text
+Sending AI request: AISplitCommit[grouping] -> github-copilot / gpt-5-mini -> api.githubcopilot.com
+```
+
+---
+
+## Custom providers
+
+```lua
+require("ai-provider").register_provider("my-provider", {
   prepare_request = function(model_id, callback)
-    -- callback(endpoint, headers) on success
-    -- callback(nil, nil, err_string) on failure
+    -- callback(endpoint, headers)
+    -- or callback(nil, nil, err)
   end,
   login = function(callback) end,
   logout = function() end,
-  status = function() return { authenticated = true, provider = "my-provider", message = "OK" } end,
-  get_models = function() return {} end,
+  status = function()
+    return {
+      authenticated = true,
+      provider = "my-provider",
+      message = "OK",
+    }
+  end,
+  get_models = function()
+    return {}
+  end,
 })
 ```
 
-## Provider Details
+---
 
-### OpenRouter
+## Usage examples
 
-Uses API key authentication. Set the key via:
-- Environment variable: `export OPENROUTER_API_KEY=sk-...`
-- Config: `{ providers = { openrouter = { api_key = "sk-..." } } }`
+## 1. Shared config for multiple plugins
 
-### GitHub Copilot
+If both `ai-commit.nvim` and `ai-split-commit.nvim` use the same provider, you can configure the provider once:
 
-Uses GitHub's OAuth device-code flow (same as VS Code Copilot). On first use or `login()`, a browser opens for you to authorize. Tokens are cached and auto-refreshed.
+```lua
+{
+  "cjvnjde/ai-provider.nvim",
+  opts = {
+    providers = {
+      ["github-copilot"] = {},
+    },
+  },
+}
+```
 
-**GitHub Enterprise:** Set `enterprise_domain` in the provider config.
+Then each consumer plugin can just say:
 
-**Available models:** `gpt-4o`, `gpt-4.1`, `claude-sonnet-4`, `claude-haiku-4.5`, `gemini-2.5-pro`, `grok-code-fast-1`, and more. Run `get_models("github-copilot")` for the full list.
+```lua
+opts = {
+  provider = "github-copilot",
+  model = "gpt-5-mini",
+}
+```
+
+## 2. Forward provider config through a consumer plugin
+
+Both `ai-commit.nvim` and `ai-split-commit.nvim` support:
+
+```lua
+provider_config = {
+  ["github-copilot"] = {
+    enterprise_domain = "company.ghe.com",
+  },
+}
+```
+
+So you can keep provider config close to the consumer plugin.
+
+## 3. GitHub Enterprise
+
+```lua
+require("ai-provider").setup({
+  providers = {
+    ["github-copilot"] = {
+      enterprise_domain = "company.ghe.com",
+    },
+  },
+})
+```
+
+## 4. Local development setup
+
+```lua
+{
+  dir = "/mnt/shared/projects/personal/nvim-plugins/ai-provider.nvim",
+  dependencies = { "nvim-lua/plenary.nvim" },
+}
+```
+
+---
+
+## Notes
+
+- `ai-provider.nvim` does not decide prompts or UI.
+- Consumer plugins build prompts and pass the request body.
+- Request notifications now show:
+  - source label
+  - provider
+  - model
+  - destination host
