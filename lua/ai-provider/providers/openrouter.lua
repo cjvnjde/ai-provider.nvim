@@ -66,10 +66,10 @@ function M.status()
   }
 end
 
---- Return known models.
----@return AiProviderModel[]
+--- Return known models (rich model definitions).
+---@return table[]
 function M.get_models()
-  return models_data["openrouter"] or {}
+  return models_data.get_models("openrouter")
 end
 
 return M

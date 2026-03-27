@@ -279,10 +279,56 @@ function M.prepare_request(_model_id, callback)
   end)
 end
 
---- Return known models.
----@return AiProviderModel[]
+--- Return known models (rich model definitions).
+---@return table[]
 function M.get_models()
-  return models_data[PROVIDER_NAME] or {}
+  return models_data.get_models(PROVIDER_NAME)
+end
+
+--- Get a valid Copilot session token, refreshing if needed.
+--- This is the main integration point for the streaming providers.
+---
+---@param callback fun(token: string|nil, base_url: string|nil, err: string|nil)
+function M.get_token(callback)
+  local creds = store.read(PROVIDER_NAME)
+
+  -- 1. Cached token is still valid
+  if creds and not needs_refresh(creds) then
+    local base_url = get_base_url(creds.access_token, creds.enterprise_domain)
+    callback(creds.access_token, base_url)
+    return
+  end
+
+  -- 2. Try to refresh
+  if creds and creds.refresh_token then
+    exchange_for_copilot_token(creds.refresh_token, creds.enterprise_domain, function(new_creds, err)
+      if new_creds then
+        local base_url = get_base_url(new_creds.access_token, new_creds.enterprise_domain)
+        callback(new_creds.access_token, base_url)
+      else
+        -- Refresh failed → full login
+        M.login(function(login_creds, login_err)
+          if login_creds then
+            local base_url = get_base_url(login_creds.access_token, login_creds.enterprise_domain)
+            callback(login_creds.access_token, base_url)
+          else
+            callback(nil, nil, login_err or "Login failed")
+          end
+        end)
+      end
+    end)
+    return
+  end
+
+  -- 3. No credentials → full login
+  M.login(function(login_creds, login_err)
+    if login_creds then
+      local base_url = get_base_url(login_creds.access_token, login_creds.enterprise_domain)
+      callback(login_creds.access_token, base_url)
+    else
+      callback(nil, nil, login_err or "Login failed")
+    end
+  end)
 end
 
 return M
