@@ -108,8 +108,11 @@ function M.send(opts, callback)
       pcall(os.remove, body_file)
     end
 
+    local notification = require "ai-provider.notification"
+    local target_label = format_request_target(opts, endpoint)
+
     vim.schedule(function()
-      vim.notify("Sending AI request: " .. format_request_target(opts, endpoint), vim.log.levels.INFO)
+      notification.show("Sending: " .. target_label)
     end)
 
     local ok, request_err = pcall(function()
@@ -119,10 +122,12 @@ function M.send(opts, callback)
         body = body_file,
         callback = vim.schedule_wrap(function(response)
           cleanup_body_file()
+          notification.dismiss()
           callback(response)
         end),
         on_error = vim.schedule_wrap(function(curl_err)
           cleanup_body_file()
+          notification.dismiss()
           local msg = type(curl_err) == "table" and (curl_err.message or curl_err.stderr) or tostring(curl_err)
           callback(nil, msg)
         end),
@@ -132,6 +137,7 @@ function M.send(opts, callback)
     if not ok then
       cleanup_body_file()
       vim.schedule(function()
+        notification.dismiss()
         callback(nil, tostring(request_err))
       end)
     end
