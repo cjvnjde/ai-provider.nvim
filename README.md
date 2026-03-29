@@ -4,7 +4,7 @@ A reusable AI provider abstraction for Neovim plugins.
 
 `ai-provider.nvim` is a shared foundation layer that other plugins (like `ai-commit.nvim` and `ai-split-commit.nvim`) use to talk to AI models. It handles authentication, model discovery, SSE streaming, and unified reasoning configuration across multiple AI providers — so consumer plugins don't have to deal with any of that themselves.
 
-You typically don't interact with `ai-provider.nvim` directly. It is pulled in as a dependency and configured through the consumer plugin's `provider_config` option. However, you can also use it standalone for your own scripting or plugin development.
+You typically don't interact with `ai-provider.nvim` directly. It is pulled in as a dependency and can be configured through a consumer plugin's `ai_provider` passthrough option (for example from `ai-commit.nvim` or `ai-split-commit.nvim`). However, you can also use it standalone for your own scripting or plugin development.
 
 ## Supported Providers
 
@@ -55,7 +55,20 @@ require("ai-provider").setup(opts)
 |-----------|------|---------|-------------|
 | `providers` | `table<string, table>` | `{}` | Provider-specific settings. Each key is a provider name, each value is a table with settings like `api_key`, `enterprise_domain`, etc. |
 | `reasoning` | `string?` | `nil` | Default reasoning level for `stream_simple()`. One of `"minimal"`, `"low"`, `"medium"`, `"high"`. When `nil`, reasoning is disabled by default. |
-| `custom_models` | `table?` | `nil` | Custom model definitions keyed by provider name. Each value is a list of model definition tables. |
+| `debug` | `boolean` | `false` | Save one JSON debug dump per request to `~/.cache/nvim/ai-provider-debug/`, including request context/options and final response or error. |
+| `notification` | `table` | `{ enabled = true }` | Top-right sending notification configuration. Set `notification.enabled = false` to disable the request spinner popup. |
+| `debug_toast` | `table` | `{ enabled = false, max_width = 60, max_height = 15, dismiss_delay = 3000 }` | Bottom-right streaming debug toast configuration. Useful when inspecting streamed text, reasoning blocks, tool calls, and token usage. |
+| `custom_models` | `table?` | `nil` | Custom model definitions keyed by provider name. Each value is a list of model definition tables. If a custom model uses the same `id` as an existing model for that provider, it extends/overrides the built-in entry instead of creating a duplicate. |
+
+When `ai-provider.nvim` is used through consumer plugins, this exact table is passed as:
+
+```lua
+opts = {
+  ai_provider = {
+    -- same fields as ai-provider.setup(...)
+  },
+}
+```
 
 ### Provider-specific settings
 
@@ -72,6 +85,67 @@ Each provider entry in `providers` accepts:
 | `groq` | `api_key` (string) — overrides `GROQ_API_KEY` env var |
 | `cerebras` | `api_key` (string) — overrides `CEREBRAS_API_KEY` env var |
 | `mistral` | `api_key` (string) — overrides `MISTRAL_API_KEY` env var |
+
+---
+
+## Consumer plugin passthrough examples
+
+In most setups you configure `ai-provider.nvim` indirectly through `ai-commit.nvim` or `ai-split-commit.nvim`.
+
+### Via `ai-commit.nvim`
+
+```lua
+{
+  "cjvnjde/ai-commit.nvim",
+  dependencies = {
+    "nvim-lua/plenary.nvim",
+    "nvim-telescope/telescope.nvim",
+    "cjvnjde/ai-provider.nvim",
+  },
+  opts = {
+    provider = "github-copilot",
+    model = "gpt-5-mini",
+    ai_options = {
+      reasoning = "high",
+    },
+    ai_provider = {
+      debug = true,
+      debug_toast = { enabled = true },
+      providers = {
+        ["github-copilot"] = {
+          enterprise_domain = "company.ghe.com",
+        },
+      },
+    },
+  },
+}
+```
+
+### Via `ai-split-commit.nvim`
+
+```lua
+{
+  "cjvnjde/ai-split-commit.nvim",
+  dependencies = {
+    "nvim-lua/plenary.nvim",
+    "cjvnjde/ai-provider.nvim",
+    "cjvnjde/ai-commit.nvim",
+  },
+  opts = {
+    provider = "openrouter",
+    model = "google/gemini-2.5-pro",
+    ai_options = {
+      reasoning = "high",
+    },
+    ai_provider = {
+      notification = { enabled = true },
+      providers = {
+        openrouter = { api_key = "sk-or-..." },
+      },
+    },
+  },
+}
+```
 
 ---
 
@@ -187,6 +261,8 @@ Then authenticate once:
 }
 ```
 
+If a custom model reuses an existing provider + `id`, the built-in entry is updated/extended instead of duplicated.
+
 ### 7. Default reasoning level
 
 ```lua
@@ -201,6 +277,28 @@ Then authenticate once:
   },
 }
 ```
+
+### 8. Debug dumps + streaming debug toast
+
+```lua
+{
+  "cjvnjde/ai-provider.nvim",
+  dependencies = { "nvim-lua/plenary.nvim" },
+  opts = {
+    reasoning = "high",
+    debug = true,
+    notification = { enabled = true },
+    debug_toast = {
+      enabled = true,
+      max_width = 50,
+      max_height = 12,
+      dismiss_delay = 5000,
+    },
+  },
+}
+```
+
+This saves JSON request/response logs under `~/.cache/nvim/ai-provider-debug/` and shows a bottom-right streaming debug toast while requests are active.
 
 ---
 
