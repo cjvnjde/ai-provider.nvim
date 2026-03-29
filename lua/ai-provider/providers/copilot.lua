@@ -289,8 +289,36 @@ end
 --- This is the main integration point for the streaming providers.
 ---
 ---@param callback fun(token: string|nil, base_url: string|nil, err: string|nil)
-function M.get_token(callback)
+---@param token_override? string Optional GitHub OAuth token or already-issued Copilot session token.
+function M.get_token(callback, token_override)
   local creds = store.read(PROVIDER_NAME)
+  local enterprise_domain = (creds and creds.enterprise_domain) or get_enterprise_domain()
+
+  -- Explicit session-token override
+  if token_override and token_override:match("proxy%-ep=") then
+    callback(token_override, get_base_url(token_override, enterprise_domain))
+    return
+  end
+
+  -- Explicit GitHub token override backed by cached exchanged creds
+  if token_override and creds and creds.refresh_token == token_override and not needs_refresh(creds) then
+    local base_url = get_base_url(creds.access_token, creds.enterprise_domain)
+    callback(creds.access_token, base_url)
+    return
+  end
+
+  -- Explicit GitHub token override → exchange for a fresh Copilot session token
+  if token_override then
+    exchange_for_copilot_token(token_override, enterprise_domain, function(new_creds, err)
+      if new_creds then
+        local base_url = get_base_url(new_creds.access_token, new_creds.enterprise_domain)
+        callback(new_creds.access_token, base_url)
+      else
+        callback(nil, nil, err or "Failed to exchange Copilot token")
+      end
+    end)
+    return
+  end
 
   -- 1. Cached token is still valid
   if creds and not needs_refresh(creds) then

@@ -275,17 +275,16 @@ function M.stream(model, context, options)
   local es = EventStream.new()
 
   vim.schedule(function()
-    local api_key = resolve_api_key(model, options)
-    if not api_key then
+    local function auth_error(err)
       local out = types.new_assistant_message(model)
       out.stop_reason = "error"
-      out.error_message = "No API key for provider: " .. model.provider
+      out.error_message = err or ("No API key for provider: " .. model.provider)
       es:push({ type = "error", reason = "error", error = out })
       es:finish()
-      return
     end
 
-    local base_url = model.base_url
+    local function start_request(api_key, resolved_base_url)
+      local base_url = resolved_base_url or model.base_url
     if base_url:sub(-1) == "/" then base_url = base_url:sub(1, -2) end
     local endpoint = base_url .. "/v1/messages"
     local headers  = build_headers(model, api_key, options)
@@ -307,7 +306,6 @@ function M.stream(model, context, options)
       body = body,
 
       on_event = function(event_type, data)
-        vim.schedule(function()
           if es:is_done() then return end
 
           got_sse = true
@@ -424,7 +422,6 @@ function M.stream(model, context, options)
             end
             es:finish()
           end
-        end)
       end,
 
       on_error = function(err)
@@ -452,7 +449,28 @@ function M.stream(model, context, options)
         end
       end,
     })
-    es:set_job_id(job_id)
+      es:set_job_id(job_id)
+    end
+
+    if model.provider == "github-copilot" then
+      local provider_cfg = require("ai-provider.config").get_provider_config(model.provider) or {}
+      local token_override = (options and options.api_key) or provider_cfg.api_key or env_keys.get(model.provider)
+      require("ai-provider.providers.copilot").get_token(function(token, base_url, err)
+        if token then
+          start_request(token, base_url)
+        else
+          auth_error(err)
+        end
+      end, token_override)
+      return
+    end
+
+    local api_key = resolve_api_key(model, options)
+    if not api_key then
+      auth_error()
+      return
+    end
+    start_request(api_key, model.base_url)
   end)
 
   return es

@@ -280,7 +280,6 @@ function M.stream(model, context, options)
       body = body,
 
       on_event = function(_, data)
-        vim.schedule(function()
           if es:is_done() then return end
 
           got_sse = true
@@ -367,7 +366,6 @@ function M.stream(model, context, options)
             }
             types.calculate_cost(model, output.usage)
           end
-        end)
       end,
 
       on_error = function(err)
