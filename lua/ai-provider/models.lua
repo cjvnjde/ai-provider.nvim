@@ -23,7 +23,6 @@ local COPILOT_HEADERS = {
 local COPILOT_COMPAT_NO_STANDARD = {
   supports_store = false,
   supports_developer_role = false,
-  supports_reasoning_effort = false,
 }
 
 local COPILOT_URL = "https://api.individual.githubcopilot.com"
