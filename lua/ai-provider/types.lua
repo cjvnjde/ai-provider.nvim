@@ -34,6 +34,7 @@ function M.empty_usage()
   return {
     input = 0,
     output = 0,
+    reasoning_tokens = 0,
     cache_read = 0,
     cache_write = 0,
     total_tokens = 0,

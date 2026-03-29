@@ -252,11 +252,12 @@ local function parse_usage(raw, model)
   local input  = (raw.prompt_tokens or 0) - cached
   local output = (raw.completion_tokens or 0) + reasoning
   local usage  = {
-    input        = input,
-    output       = output,
-    cache_read   = cached,
-    cache_write  = 0,
-    total_tokens = input + output + cached,
+    input            = input,
+    output           = output,
+    reasoning_tokens = reasoning,
+    cache_read       = cached,
+    cache_write      = 0,
+    total_tokens     = input + output + cached,
     cost = { input = 0, output = 0, cache_read = 0, cache_write = 0, total = 0 },
   }
   types.calculate_cost(model, usage)
