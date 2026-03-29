@@ -46,23 +46,44 @@ function M.stream(opts)
   table.insert(args, "@" .. tmp)
   table.insert(args, opts.url)
 
+  -- Track partial lines across on_stdout callbacks.
+  -- vim.fn.jobstart splits output by \n: each element is a line fragment,
+  -- and empty strings ("") represent newline characters (i.e. blank lines).
+  -- The first element of each callback continues the last element of the
+  -- previous one, and the last element may be an incomplete partial line.
+  local stdout_pending = ""
+  local stderr_pending = ""
+
   local job_id = vim.fn.jobstart(args, {
     on_stdout = function(_, data, _)
-      for _, chunk in ipairs(data) do
-        if chunk ~= "" then
-          parser:feed(chunk .. "\n")
-        end
+      -- Reassemble partial lines across callbacks
+      data[1] = stdout_pending .. data[1]
+      stdout_pending = data[#data]
+
+      -- Feed complete lines (all except the last, which may be partial).
+      -- Empty strings become "\n" — the blank line the SSE parser needs
+      -- to flush each event frame.
+      for i = 1, #data - 1 do
+        parser:feed(data[i] .. "\n")
       end
     end,
     on_stderr = function(_, data, _)
-      for _, chunk in ipairs(data) do
-        if chunk ~= "" then
-          table.insert(stderr_chunks, chunk)
+      data[1] = stderr_pending .. data[1]
+      stderr_pending = data[#data]
+
+      for i = 1, #data - 1 do
+        if data[i] ~= "" then
+          table.insert(stderr_chunks, data[i])
         end
       end
     end,
     on_exit = function(_, exit_code, _)
       os.remove(tmp)
+
+      -- Feed any remaining partial line before finishing
+      if stdout_pending ~= "" then
+        parser:feed(stdout_pending .. "\n")
+      end
       parser:finish()
 
       if exit_code ~= 0 then
@@ -70,6 +91,16 @@ function M.stream(opts)
         if err == "" then err = "curl exited with code " .. exit_code end
         if opts.on_error then
           vim.schedule(function() opts.on_error(err) end)
+        end
+      elseif not parser:had_events() then
+        -- No SSE events were emitted – the API likely returned a raw
+        -- (non-SSE) error response.  Surface it instead of silently
+        -- reporting an empty result.
+        local raw = parser:get_unknown_data()
+        if raw == "" then raw = table.concat(stderr_chunks, "\n") end
+        if raw == "" then raw = "No response received from server" end
+        if opts.on_error then
+          vim.schedule(function() opts.on_error(raw) end)
         end
       else
         if opts.on_done then

@@ -12,6 +12,8 @@ function M.new()
     _current_event = nil,
     _current_data = {},
     _callback = nil,
+    _unknown_lines = {},  -- non-SSE lines (for error detection)
+    _had_events = false,
   }
 
   --- Set the callback for parsed events.
@@ -23,6 +25,7 @@ function M.new()
   --- Flush the accumulated event.
   function parser:_flush()
     if #self._current_data == 0 then return end
+    self._had_events = true
     local data = table.concat(self._current_data, "\n")
     if self._callback then
       self._callback(self._current_event, data)
@@ -51,8 +54,10 @@ function M.new()
         self._current_event = vim.trim(line:sub(7))
       elseif line:sub(1, 5) == "data:" then
         table.insert(self._current_data, vim.trim(line:sub(6)))
+      elseif line:sub(1, 1) ~= ":" then
+        -- Collect non-comment, non-SSE lines (likely raw JSON error responses)
+        table.insert(self._unknown_lines, line)
       end
-      -- Ignore comments (lines starting with ':') and unknown fields.
     end
   end
 
@@ -61,6 +66,18 @@ function M.new()
     if #self._current_data > 0 then
       self:_flush()
     end
+  end
+
+  --- Whether any SSE events were emitted.
+  ---@return boolean
+  function parser:had_events()
+    return self._had_events
+  end
+
+  --- Return collected non-SSE lines (useful for raw error responses).
+  ---@return string
+  function parser:get_unknown_data()
+    return table.concat(self._unknown_lines, "\n")
   end
 
   return parser
