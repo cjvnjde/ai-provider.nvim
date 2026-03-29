@@ -8,41 +8,61 @@ local spinner_frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧",
 --- @field win number
 --- @field timer uv_timer_t
 --- @field frame number
---- @field message string
+--- @field lines string[]
 
 --- @type Spinner|nil
 local active_spinner = nil
 
---- Build the display line for the current frame.
+--- Padding for continuation lines (aligned with text after spinner).
+local prefix_pad = "    "
+
+--- Build display lines for the current frame.
 --- @param frame number
---- @param message string
---- @return string
-local function spinner_line(frame, message)
-  return " " .. spinner_frames[frame] .. "  " .. message .. " "
+--- @param lines string[]
+--- @return string[]
+local function build_display(frame, lines)
+  local out = {}
+  for i, line in ipairs(lines) do
+    if i == 1 then
+      out[i] = " " .. spinner_frames[frame] .. "  " .. line .. " "
+    else
+      out[i] = " " .. prefix_pad .. line .. " "
+    end
+  end
+  return out
 end
 
---- Compute the window width from the message text.
---- @param message string
+--- Compute the window width from the widest line.
+--- @param lines string[]
 --- @return number
-local function win_width(message)
-  -- +5 accounts for: leading space, spinner char, two spaces, trailing space
-  return vim.fn.strdisplaywidth(message) + 5
+local function win_width(lines)
+  local max = 0
+  for i, line in ipairs(lines) do
+    -- first line: space + spinner + two spaces + text + trailing space  = +5
+    -- other lines: space + 4-char pad + text + trailing space           = +6
+    local w = vim.fn.strdisplaywidth(line) + (i == 1 and 5 or 6)
+    if w > max then max = w end
+  end
+  return max
 end
 
 --- Show a floating spinner in the top-right corner.
---- @param message string  Text to display next to the spinner
---- @return fun()          Call this function to dismiss the spinner
+---
+--- @param message string|string[]  Single string or list of lines
+--- @return fun()                   Call this function to dismiss the spinner
 function M.show(message)
   -- If there is already an active spinner, close it first.
   if active_spinner then
     M.dismiss()
   end
 
-  local buf = vim.api.nvim_create_buf(false, true)
-  local width = win_width(message)
-  local initial_line = spinner_line(1, message)
+  local lines = type(message) == "table" and message or { message }
 
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { initial_line })
+  local buf = vim.api.nvim_create_buf(false, true)
+  local width = win_width(lines)
+  local height = #lines
+
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, build_display(1, lines))
 
   local win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
@@ -50,7 +70,7 @@ function M.show(message)
     row = 1,
     col = vim.o.columns - 1,
     width = width,
-    height = 1,
+    height = height,
     style = "minimal",
     border = "rounded",
     focusable = false,
@@ -69,7 +89,7 @@ function M.show(message)
     win = win,
     timer = timer,
     frame = frame,
-    message = message,
+    lines = lines,
   }
 
   timer:start(
@@ -83,7 +103,7 @@ function M.show(message)
       frame = (frame % #spinner_frames) + 1
       active_spinner.frame = frame
 
-      local ok = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, { spinner_line(frame, message) })
+      local ok = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, build_display(frame, lines))
       if not ok then
         -- Buffer was closed externally – clean up.
         M.dismiss()

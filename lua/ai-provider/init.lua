@@ -204,5 +204,6 @@ end
 M.EventStream  = require "ai-provider.event_stream"
 M.types        = require "ai-provider.types"
 M.env_keys     = require "ai-provider.env_keys"
+M.debug_toast  = require "ai-provider.debug_toast"
 
 return M

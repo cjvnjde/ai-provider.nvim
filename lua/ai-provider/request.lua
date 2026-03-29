@@ -5,12 +5,27 @@ local function get_host(endpoint)
   return endpoint and endpoint:match("^https?://([^/%?]+)") or "unknown-host"
 end
 
-local function format_request_target(opts, endpoint)
-  local label = opts.label and (opts.label .. " -> ") or ""
+local function is_notification_enabled()
+  local cfg = require("ai-provider.config").get()
+  return cfg.notification == nil or cfg.notification.enabled ~= false
+end
+
+--- Build multiline notification text for a request.
+---@return string[]
+local function format_request_lines(opts, endpoint)
   local provider = opts.provider or "unknown-provider"
   local model = opts.model or (opts.body and opts.body.model) or "unknown-model"
   local host = get_host(endpoint)
-  return string.format("%s%s / %s -> %s", label, provider, model, host)
+
+  local lines = {}
+  if opts.label then
+    table.insert(lines, "Sending: " .. opts.label)
+  else
+    table.insert(lines, "Sending request…")
+  end
+  table.insert(lines, provider .. " / " .. model)
+  table.insert(lines, "→ " .. host)
+  return lines
 end
 
 local function encode_request_body(body)
@@ -109,10 +124,13 @@ function M.send(opts, callback)
     end
 
     local notification = require "ai-provider.notification"
-    local target_label = format_request_target(opts, endpoint)
+    local notifications_enabled = is_notification_enabled()
+    local lines = format_request_lines(opts, endpoint)
 
     vim.schedule(function()
-      notification.show("Sending: " .. target_label)
+      if notifications_enabled then
+        notification.show(lines)
+      end
     end)
 
     local ok, request_err = pcall(function()
@@ -122,12 +140,16 @@ function M.send(opts, callback)
         body = body_file,
         callback = vim.schedule_wrap(function(response)
           cleanup_body_file()
-          notification.dismiss()
+          if notifications_enabled then
+            notification.dismiss()
+          end
           callback(response)
         end),
         on_error = vim.schedule_wrap(function(curl_err)
           cleanup_body_file()
-          notification.dismiss()
+          if notifications_enabled then
+            notification.dismiss()
+          end
           local msg = type(curl_err) == "table" and (curl_err.message or curl_err.stderr) or tostring(curl_err)
           callback(nil, msg)
         end),
@@ -137,7 +159,9 @@ function M.send(opts, callback)
     if not ok then
       cleanup_body_file()
       vim.schedule(function()
-        notification.dismiss()
+        if notifications_enabled then
+          notification.dismiss()
+        end
         callback(nil, tostring(request_err))
       end)
     end
