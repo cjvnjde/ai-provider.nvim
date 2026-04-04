@@ -1,6 +1,6 @@
 # ai-provider.nvim
 
-A reusable AI provider abstraction for Neovim plugins.
+A reusable AI provider abstraction for Neovim plugins based on the [pi.dev](https://github.com/badlogic/pi-mono) providers.
 
 `ai-provider.nvim` is a shared foundation layer that other plugins (like `ai-commit.nvim` and `ai-split-commit.nvim`) use to talk to AI models. It handles authentication, model discovery, SSE streaming, and unified reasoning configuration across multiple AI providers — so consumer plugins don't have to deal with any of that themselves.
 
@@ -456,54 +456,4 @@ ai.register_api("my-custom-api", {
     -- ... map reasoning level to provider-specific params ...
   end,
 })
-```
-
----
-
-## Legacy API (backward compatible)
-
-The original `request()` API still works and is what `ai-commit.nvim` and `ai-split-commit.nvim` use internally:
-
-```lua
-ai.request({
-  provider = "openrouter",
-  model = "anthropic/claude-sonnet-4",
-  body = {
-    model = "anthropic/claude-sonnet-4",
-    messages = {{ role = "user", content = "Hello!" }},
-    max_tokens = 1000,
-  },
-  label = "MyPlugin",
-}, function(response, err)
-  if err then print("Error:", err) return end
-  local data = vim.json.decode(response.body)
-  print(data.choices[1].message.content)
-end)
-```
-
----
-
-## Architecture
-
-```
-ai-provider/
-├── init.lua                 -- Top-level API
-├── config.lua               -- Configuration store
-├── types.lua                -- Type constants & constructors
-├── models.lua               -- Rich model definitions (all providers)
-├── stream.lua               -- stream() / complete() / stream_simple()
-├── event_stream.lua         -- EventStream class
-├── sse.lua                  -- SSE parser
-├── curl_stream.lua          -- Shared curl streaming utility
-├── env_keys.lua             -- Environment API key resolution
-├── api_registry.lua         -- API provider registry (by API type)
-├── credential_store.lua     -- Persistent OAuth credential storage
-├── request.lua              -- Legacy HTTP request helper
-└── providers/
-    ├── init.lua             -- Registers built-in providers
-    ├── openai_completions.lua  -- OpenAI Chat Completions streaming
-    ├── anthropic.lua        -- Anthropic Messages streaming
-    ├── google.lua           -- Google Generative AI streaming
-    ├── copilot.lua          -- GitHub Copilot OAuth
-    └── openrouter.lua       -- OpenRouter auth helper
 ```
