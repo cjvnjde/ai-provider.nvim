@@ -8,17 +8,40 @@ You typically don't interact with `ai-provider.nvim` directly. It is pulled in a
 
 ## Supported Providers
 
+The plugin implements **ten** of pi-mono's API wire protocols natively,
+and surfaces every provider from pi-mono's catalog (including providers
+whose APIs aren't fully implemented — those will error clearly when
+called).
+
 | Provider | API | Auth | Reasoning | Env Variable |
 |----------|-----|------|-----------|--------------|
-| **Anthropic** | `anthropic-messages` | API key | Budget & adaptive thinking | `ANTHROPIC_API_KEY` |
-| **Google Gemini** | `google-generative-ai` | API key | Budget & level-based thinking | `GEMINI_API_KEY` |
-| **OpenAI** | `openai-completions` | API key | `reasoning_effort` | `OPENAI_API_KEY` |
-| **OpenRouter** | `openai-completions` | API key | OpenRouter reasoning format | `OPENROUTER_API_KEY` |
-| **GitHub Copilot** | Both | OAuth device-code flow | Per-model | OAuth (no env needed) |
-| **xAI** | `openai-completions` | API key | ✓ | `XAI_API_KEY` |
-| **Groq** | `openai-completions` | API key | ✓ | `GROQ_API_KEY` |
+| **Anthropic** | `anthropic-messages` | API key / sk-ant-oat OAuth | Budget + adaptive thinking (incl. `xhigh` on Opus 4.6/4.7) | `ANTHROPIC_API_KEY` / `ANTHROPIC_OAUTH_TOKEN` |
+| **Google Gemini** | `google-generative-ai` | API key | Budget (2.5) & level-based (3.x) | `GEMINI_API_KEY` |
+| **OpenAI** | `openai-responses` | API key | `reasoning_effort` (incl. `xhigh` on GPT-5.2/5.3/5.4) | `OPENAI_API_KEY` |
+| **Azure OpenAI** | `azure-openai-responses` | `api-key` header | `reasoning_effort` | `AZURE_OPENAI_API_KEY` |
+| **OpenRouter** | `openai-completions` | API key | OpenRouter `reasoning.effort` + anthropic cache_control for `anthropic/*` | `OPENROUTER_API_KEY` |
+| **GitHub Copilot** | `anthropic-messages` / `openai-completions` / `openai-responses` | OAuth device-code flow | Per-model | OAuth (no env needed) |
+| **xAI** | `openai-completions` | API key | — | `XAI_API_KEY` |
+| **Groq** | `openai-completions` | API key | `reasoning_effort` | `GROQ_API_KEY` |
 | **Cerebras** | `openai-completions` | API key | — | `CEREBRAS_API_KEY` |
-| **Mistral** | `openai-completions` | API key | — | `MISTRAL_API_KEY` |
+| **z.ai** | `openai-completions` | API key | top-level `enable_thinking` | `ZAI_API_KEY` |
+| **Mistral** | `mistral-conversations` | API key | `prompt_mode:"reasoning"` or `reasoning_effort:"high"` | `MISTRAL_API_KEY` |
+| **DeepSeek / Fireworks / HuggingFace / Minimax / Opencode / Kimi / Qwen / Vercel AI Gateway** | `openai-completions` | API key | varies (`openrouter`, `zai`, `qwen`, `qwen-chat-template`, `openai`) | see below |
+
+**Not implemented (stubbed with clear error):**
+
+| Provider / API | Why | Workaround |
+|----------|-----|-----------|
+| `amazon-bedrock` / `bedrock-converse-stream` | AWS SigV4 request signing + Bedrock event framing are out of scope. | Proxy through an OpenAI-compatible gateway (e.g. Vercel AI Gateway, LiteLLM). |
+| `google-gemini-cli` | Requires the `gemini` CLI's OAuth token store + CloudCode endpoint. | Use the `google` provider with `GEMINI_API_KEY`. |
+| `google-vertex` (ADC path) | Requires RS256-signed service-account JWT exchange. | Set `GOOGLE_CLOUD_API_KEY` to use a plain API key — the plugin delegates to `google-generative-ai` in that case. |
+| `openai-codex-responses` | Requires Codex (ChatGPT account) OAuth device-code flow. | Pass a pre-obtained access token via `options.api_key`; the plugin then delegates to `openai-responses`. |
+
+Env variables honored (in addition to those in the table above):
+`AZURE_OPENAI_API_KEY`, `AI_GATEWAY_API_KEY`, `ZAI_API_KEY`,
+`MINIMAX_API_KEY`, `MINIMAX_CN_API_KEY`, `HF_TOKEN`, `FIREWORKS_API_KEY`,
+`OPENCODE_API_KEY`, `KIMI_API_KEY`, `DEEPSEEK_API_KEY`,
+`GOOGLE_CLOUD_API_KEY`.
 
 ---
 
@@ -368,6 +391,7 @@ Unified across all providers:
 | `"low"` | Low effort / 2048 budget | Low / 2048 budget | `"low"` |
 | `"medium"` | Medium effort / 8192 budget | Medium / 8192 budget | `"medium"` |
 | `"high"` | High effort / 16384 budget | High / 32768 budget | `"high"` |
+| `"xhigh"` | Opus 4.6 → `max`, Opus 4.7 → `xhigh` (adaptive) | clamped to `high` | GPT-5.2/5.3/5.4 native; otherwise clamped to `high` |
 
 ---
 

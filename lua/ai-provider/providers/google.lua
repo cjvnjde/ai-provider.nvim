@@ -10,6 +10,16 @@ local EventStream  = require "ai-provider.event_stream"
 local curl_stream  = require "ai-provider.curl_stream"
 local types        = require "ai-provider.types"
 local env_keys     = require "ai-provider.env_keys"
+local utils        = require "ai-provider.utils"
+local transform    = utils.transform
+local sanitize     = utils.sanitize
+
+local GOOGLE_TOOL_CALL_ID_LENGTH = 32
+local function normalize_google_tool_call_id(id)
+  local s = tostring(id):gsub("[^a-zA-Z0-9_%-]", "_")
+  if #s > GOOGLE_TOOL_CALL_ID_LENGTH then s = s:sub(1, GOOGLE_TOOL_CALL_ID_LENGTH) end
+  return s
+end
 
 ---------------------------------------------------------------------------
 -- Stop-reason mapping
@@ -28,17 +38,18 @@ end
 ---------------------------------------------------------------------------
 
 local function convert_messages(model, context)
+  local transformed = transform.transform(context.messages, model, normalize_google_tool_call_id)
   local contents = {}
 
-  for _, msg in ipairs(context.messages) do
+  for _, msg in ipairs(transformed) do
     if msg.role == "user" then
       local parts = {}
       if type(msg.content) == "string" then
-        table.insert(parts, { text = msg.content })
+        table.insert(parts, { text = sanitize.sanitize_surrogates(msg.content) })
       else
         for _, item in ipairs(msg.content) do
           if item.type == "text" then
-            table.insert(parts, { text = item.text })
+            table.insert(parts, { text = sanitize.sanitize_surrogates(item.text) })
           elseif item.type == "image" then
             table.insert(parts, {
               inlineData = { mimeType = item.mime_type, data = item.data },
@@ -46,22 +57,32 @@ local function convert_messages(model, context)
           end
         end
       end
-      table.insert(contents, { role = "user", parts = parts })
+      if #parts > 0 then
+        table.insert(contents, { role = "user", parts = parts })
+      end
 
     elseif msg.role == "assistant" then
       local parts = {}
       for _, block in ipairs(msg.content) do
         if block.type == "text" and block.text and #block.text > 0 then
-          table.insert(parts, { text = block.text })
+          local part = { text = sanitize.sanitize_surrogates(block.text) }
+          if block.text_signature then part.thoughtSignature = block.text_signature end
+          table.insert(parts, part)
         elseif block.type == "thinking" and block.thinking and #block.thinking > 0 then
-          table.insert(parts, { text = block.thinking, thought = true })
+          local part = { text = sanitize.sanitize_surrogates(block.thinking), thought = true }
+          if block.thinking_signature then part.thoughtSignature = block.thinking_signature end
+          table.insert(parts, part)
         elseif block.type == "toolCall" then
-          table.insert(parts, {
+          local args = block.arguments
+          if args == nil or (type(args) == "table" and next(args) == nil) then args = vim.empty_dict() end
+          local part = {
             functionCall = {
               name = block.name,
-              args = block.arguments or {},
+              args = args,
             },
-          })
+          }
+          if block.thought_signature then part.thoughtSignature = block.thought_signature end
+          table.insert(parts, part)
         end
       end
       if #parts > 0 then
@@ -81,7 +102,7 @@ local function convert_messages(model, context)
           {
             functionResponse = {
               name = msg.tool_name or "unknown",
-              response = { result = text ~= "" and text or "(empty)" },
+              response = { result = sanitize.sanitize_surrogates(text ~= "" and text or "(empty)") },
             },
           },
         },
@@ -205,6 +226,11 @@ local function build_body(model, context, options)
 
   if next(gen_config) then
     body.generationConfig = gen_config
+  end
+
+  if options.on_payload then
+    local nb = options.on_payload(body, model)
+    if nb ~= nil then body = nb end
   end
 
   return body
@@ -339,7 +365,7 @@ function M.stream(model, context, options)
                 table.insert(output.content, tc)
                 es:push({ type = "toolcall_start", content_index = bidx(), partial = output })
                 es:push({ type = "toolcall_delta", content_index = bidx(),
-                  delta = vim.json.encode(tc.arguments), partial = output })
+                  delta = require("ai-provider.utils").json.encode_object(tc.arguments), partial = output })
                 es:push({ type = "toolcall_end", content_index = bidx(), tool_call = tc, partial = output })
               end
             end
@@ -417,6 +443,9 @@ function M.stream_simple(model, context, options)
     max_tokens  = options.max_tokens or math.min(model.max_tokens or 32000, 32000),
     headers     = options.headers,
     tool_choice = options.tool_choice,
+    on_payload  = options.on_payload,
+    on_response = options.on_response,
+    metadata    = options.metadata,
   }
 
   if not options.reasoning then

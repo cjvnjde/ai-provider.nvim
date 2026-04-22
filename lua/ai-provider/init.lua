@@ -1,11 +1,16 @@
 --- ai-provider – reusable AI provider abstraction for Neovim plugins.
 ---
---- Supports multiple providers (Anthropic, Google, OpenAI, OpenRouter,
---- GitHub Copilot, xAI, Groq, Cerebras, Mistral) with:
+--- Supports multiple providers (Anthropic, Google, OpenAI direct +
+--- Responses API, Azure OpenAI Responses, OpenRouter, GitHub Copilot,
+--- xAI, Groq, Cerebras, z.ai, Mistral conversations, Vercel AI Gateway,
+--- Hugging Face, Fireworks, Opencode, Kimi, etc.) with:
 --- - SSE streaming with event callbacks
---- - Unified reasoning/thinking configuration
+--- - Unified reasoning/thinking configuration (incl. `xhigh`)
 --- - Rich model definitions with cost & capability metadata
---- - OAuth (Copilot) and API-key authentication
+--- - OAuth (Copilot + Anthropic sk-ant-oat) and API-key authentication
+--- - Prompt caching (Anthropic-native and OpenAI prompt_cache_*)
+--- - Session affinity / x-affinity header propagation
+--- - `on_payload` / `on_response` / `metadata.user_id` passthrough
 ---
 --- Streaming usage (new):
 ---   local ai = require("ai-provider")
@@ -204,6 +209,7 @@ end
 M.EventStream  = require "ai-provider.event_stream"
 M.types        = require "ai-provider.types"
 M.env_keys     = require "ai-provider.env_keys"
+M.utils        = require "ai-provider.utils"
 M.debug_toast  = require "ai-provider.debug_toast"
 
 return M

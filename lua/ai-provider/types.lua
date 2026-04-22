@@ -4,26 +4,48 @@ local M = {}
 
 --- API types (wire protocol)
 M.API = {
-  OPENAI_COMPLETIONS = "openai-completions",
-  ANTHROPIC_MESSAGES = "anthropic-messages",
-  GOOGLE_GENERATIVE_AI = "google-generative-ai",
+  OPENAI_COMPLETIONS     = "openai-completions",
+  OPENAI_RESPONSES       = "openai-responses",
+  OPENAI_CODEX_RESPONSES = "openai-codex-responses",
+  AZURE_OPENAI_RESPONSES = "azure-openai-responses",
+  ANTHROPIC_MESSAGES     = "anthropic-messages",
+  BEDROCK_CONVERSE_STREAM = "bedrock-converse-stream",
+  MISTRAL_CONVERSATIONS  = "mistral-conversations",
+  GOOGLE_GENERATIVE_AI   = "google-generative-ai",
+  GOOGLE_GEMINI_CLI      = "google-gemini-cli",
+  GOOGLE_VERTEX          = "google-vertex",
 }
 
 --- Provider names
 M.PROVIDER = {
-  ANTHROPIC = "anthropic",
-  GOOGLE = "google",
-  OPENAI = "openai",
-  GITHUB_COPILOT = "github-copilot",
-  OPENROUTER = "openrouter",
-  XAI = "xai",
-  GROQ = "groq",
-  CEREBRAS = "cerebras",
-  MISTRAL = "mistral",
+  AMAZON_BEDROCK   = "amazon-bedrock",
+  ANTHROPIC        = "anthropic",
+  GOOGLE           = "google",
+  GOOGLE_GEMINI_CLI = "google-gemini-cli",
+  GOOGLE_ANTIGRAVITY = "google-antigravity",
+  GOOGLE_VERTEX    = "google-vertex",
+  OPENAI           = "openai",
+  AZURE_OPENAI_RESPONSES = "azure-openai-responses",
+  OPENAI_CODEX     = "openai-codex",
+  GITHUB_COPILOT   = "github-copilot",
+  OPENROUTER       = "openrouter",
+  VERCEL_AI_GATEWAY = "vercel-ai-gateway",
+  XAI              = "xai",
+  GROQ             = "groq",
+  CEREBRAS         = "cerebras",
+  ZAI              = "zai",
+  MISTRAL          = "mistral",
+  MINIMAX          = "minimax",
+  MINIMAX_CN       = "minimax-cn",
+  HUGGINGFACE      = "huggingface",
+  FIREWORKS        = "fireworks",
+  OPENCODE         = "opencode",
+  OPENCODE_GO      = "opencode-go",
+  KIMI_CODING      = "kimi-coding",
 }
 
 --- Reasoning / thinking levels (unified across providers)
----@alias ThinkingLevel "minimal"|"low"|"medium"|"high"
+---@alias ThinkingLevel "minimal"|"low"|"medium"|"high"|"xhigh"
 
 --- Stop reasons
 ---@alias StopReason "stop"|"length"|"toolUse"|"error"|"aborted"
@@ -70,12 +92,30 @@ function M.calculate_cost(model, usage)
   usage.cost.total = usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write
 end
 
---- Clamp reasoning level (remove "xhigh" -> "high")
+--- Clamp reasoning level for providers that don't yet support "xhigh".
+--- Most providers map "xhigh" → "high"; Anthropic adaptive-thinking providers
+--- (Opus 4.6 / 4.7) handle "xhigh" natively in their own mapper.
 ---@param level string|nil
 ---@return string|nil
 function M.clamp_reasoning(level)
   if level == "xhigh" then return "high" end
   return level
+end
+
+--- Check whether a model supports the "xhigh" thinking level.
+--- Mirrors pi-mono's supportsXhigh().
+---@param model table
+---@return boolean
+function M.supports_xhigh(model)
+  local id = model and model.id or ""
+  if id:find("gpt%-5%.2") or id:find("gpt%-5%.3") or id:find("gpt%-5%.4") then
+    return true
+  end
+  if id:find("opus%-4%-6") or id:find("opus%-4%.6")
+      or id:find("opus%-4%-7") or id:find("opus%-4%.7") then
+    return true
+  end
+  return false
 end
 
 --- Compute thinking budget + maxTokens for budget-based providers (Anthropic, Google).

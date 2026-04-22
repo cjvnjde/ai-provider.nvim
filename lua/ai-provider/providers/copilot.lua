@@ -19,6 +19,45 @@ local COPILOT_HEADERS = {
 --- Expose Copilot-specific headers for consumers that need them.
 M.COPILOT_HEADERS = COPILOT_HEADERS
 
+--- Infer whether the last message was user- or agent-initiated.
+--- Mirrors pi-mono's inferCopilotInitiator().
+---@param messages table[]
+---@return string  "user"|"agent"
+function M.infer_initiator(messages)
+  local last = messages and messages[#messages]
+  if last and last.role ~= "user" then return "agent" end
+  return "user"
+end
+
+--- Check whether any message carries an inline image payload.
+---@param messages table[]
+---@return boolean
+function M.has_vision_input(messages)
+  for _, msg in ipairs(messages or {}) do
+    if (msg.role == "user" or msg.role == "toolResult") and type(msg.content) == "table" then
+      for _, c in ipairs(msg.content) do
+        if c.type == "image" then return true end
+      end
+    end
+  end
+  return false
+end
+
+--- Build the per-request dynamic Copilot headers (X-Initiator, Openai-Intent,
+--- Copilot-Vision-Request). Static Copilot-* headers come via model.headers.
+---@param messages table[]
+---@return table<string,string>
+function M.build_dynamic_headers(messages)
+  local headers = {
+    ["X-Initiator"] = M.infer_initiator(messages),
+    ["Openai-Intent"] = "conversation-edits",
+  }
+  if M.has_vision_input(messages) then
+    headers["Copilot-Vision-Request"] = "true"
+  end
+  return headers
+end
+
 --- Get the enterprise domain from provider config (or nil for github.com).
 local function get_enterprise_domain()
   local cfg = config.get_provider_config(PROVIDER_NAME)
